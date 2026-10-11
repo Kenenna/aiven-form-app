@@ -1,67 +1,148 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Submit Form to Aiven MySQL</title>
+    <title>Fen Bilimleri Araştırma Testi</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 320px; }
-        h2 { margin-top: 0; color: #333; }
-        input { width: 100%; padding: 10px; margin: 8px 0 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        button:hover { background-color: #0056b3; }
-        #message { margin-top: 15px; font-weight: bold; text-align: center; }
+        :root { --ink:#1f2933; --muted:#5b6770; --line:#d9dee3; --accent:#0b5c8a; --accent-dark:#084765; --bg:#f3f5f7; }
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--ink); margin: 0; padding: 20px; display: flex; justify-content: center; line-height: 1.5; }
+        .container { background: #fff; padding: 2rem; border-radius: 8px; border: 1px solid var(--line); width: 100%; max-width: 700px; }
+        h2 { color: var(--accent); margin-top: 0; }
+        .instruction { background: #eef3f7; padding: 12px; border-left: 4px solid var(--accent); margin-bottom: 20px; font-size: 15px; }
+        .question-box { margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+        label { font-weight: 600; display: block; margin-bottom: 8px; }
+        input[type=text], textarea { width: 100%; padding: 10px; border: 1px solid #b8c0c7; border-radius: 4px; font: inherit; }
+        textarea { min-height: 90px; resize: vertical; }
+        input:focus, textarea:focus, button:focus-visible { outline: 3px solid #8cc4e6; outline-offset: 1px; }
+        button { background: var(--accent); color: #fff; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
+        button:hover { background: var(--accent-dark); }
+        button:disabled { opacity: .6; cursor: wait; }
+        .hidden { display: none; }
+        .error { color: #b00020; margin-top: 10px; }
+        #progress { position: sticky; top: 0; background: #fff; padding: 8px 0; margin-bottom: 12px; font-size: 14px; color: var(--muted); border-bottom: 1px solid var(--line); }
+        #message { margin-top: 15px; font-weight: 600; text-align: center; }
     </style>
 </head>
 <body>
+<div class="container">
+    <div id="loginSection">
+        <h2>Öğrenci girişi</h2>
+        <p>Öğretmeninin verdiği giriş kodunu yaz ve testi başlat.</p>
+        <label for="entryCodeInput">Giriş kodu</label>
+        <input type="text" id="entryCodeInput" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Örn: K7M2QX" style="margin-bottom:15px">
+        <button id="loginBtn" type="button">Testi başlat</button>
+        <div id="loginError" class="error" role="alert"></div>
+    </div>
 
-<div class="card">
-    <h2>Contact Us</h2>
-    <form id="submissionForm">
-        <label for="name">Name</label>
-        <input type="text" id="name" name="name" placeholder="John Doe" required>
-
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" placeholder="john@example.com" required>
-
-        <button type="submit">Submit</button>
-    </form>
-    <div id="message"></div>
+    <div id="testSection" class="hidden">
+        <h2>Fen Bilimleri değerlendirme formu</h2>
+        <div class="instruction">
+            Aşağıdaki soruları kendi cümlelerinle kısaca cevapla. “Çünkü” kelimesini kullanarak nedenini açıkla.
+            Cevabın 1–3 cümle olabilir. Bilmediğin soruyu boş bırakabilirsin.
+        </div>
+        <div id="progress"></div>
+        <form id="testForm">
+            <div id="questionsContainer"></div>
+            <button type="submit" id="submitBtn">Yanıtları gönder</button>
+        </form>
+        <div id="message" role="status"></div>
+    </div>
 </div>
 
 <script>
-    document.getElementById('submissionForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const messageDiv = document.getElementById('message');
-        messageDiv.style.color = 'black';
-        messageDiv.innerText = 'Submitting...';
+    let entryCode = '';
+    let total = 0;
 
-        const name = document.getElementById('name').value;
-        const email = document.getElementById('email').value;
+    const $ = id => document.getElementById(id);
+    const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+    async function loginStudent() {
+        const errorDiv = $('loginError');
+        errorDiv.textContent = '';
+        const code = $('entryCodeInput').value.trim().toUpperCase();
+        if (!code) { errorDiv.textContent = 'Lütfen giriş kodunu yaz.'; return; }
+
+        $('loginBtn').disabled = true;
         try {
-            const response = await fetch('/api/submit', {
+            const res = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email })
+                body: JSON.stringify({ entry_code: code })
             });
+            const data = await res.json();
+            if (!res.ok) { errorDiv.textContent = data.error || 'Giriş başarısız oldu.'; return; }
+            entryCode = code;
+            renderQuestions(data.questions);
+            $('loginSection').classList.add('hidden');
+            $('testSection').classList.remove('hidden');
+        } catch (e) {
+            errorDiv.textContent = 'Sunucuya bağlanılamadı. Bir süre sonra tekrar dene.';
+        } finally {
+            $('loginBtn').disabled = false;
+        }
+    }
 
-            const result = await response.json();
-            if (response.ok) {
-                messageDiv.style.color = 'green';
-                messageDiv.innerText = result.message;
-                document.getElementById('submissionForm').reset();
+    function renderQuestions(questions) {
+        total = questions.length;
+        const container = $('questionsContainer');
+        container.innerHTML = '';
+        questions.forEach((q, i) => {
+            const div = document.createElement('div');
+            div.className = 'question-box';
+            div.innerHTML = `
+                <label for="a_${q.item_code}">${i + 1}. ${esc(q.question_text)}</label>
+                <textarea id="a_${q.item_code}" name="${q.item_code}" maxlength="2000" placeholder="Cevabını buraya yaz (Çünkü...)"></textarea>`;
+            container.appendChild(div);
+        });
+        updateProgress();
+    }
+
+    function updateProgress() {
+        const filled = [...document.querySelectorAll('#questionsContainer textarea')].filter(t => t.value.trim()).length;
+        $('progress').textContent = `${filled} / ${total} soru yanıtlandı`;
+    }
+
+    $('questionsContainer').addEventListener('input', updateProgress);
+    $('loginBtn').addEventListener('click', loginStudent);
+    $('entryCodeInput').addEventListener('keydown', e => { if (e.key === 'Enter') loginStudent(); });
+
+    $('testForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        const messageDiv = $('message');
+        const responses = {};
+        document.querySelectorAll('#questionsContainer textarea').forEach(t => { responses[t.name] = t.value; });
+
+        const blanks = Object.values(responses).filter(v => !v.trim()).length;
+        if (blanks && !confirm(`${blanks} soruyu boş bıraktın. Yine de göndermek istiyor musun?`)) return;
+
+        $('submitBtn').disabled = true;
+        messageDiv.style.color = '#1f2933';
+        messageDiv.textContent = 'Gönderiliyor...';
+        try {
+            const res = await fetch('/api/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entry_code: entryCode, responses })
+            });
+            const result = await res.json();
+            if (res.ok) {
+                messageDiv.style.color = '#1b7a3a';
+                messageDiv.textContent = result.message;
+                $('testForm').classList.add('hidden');
+                $('progress').classList.add('hidden');
             } else {
-                messageDiv.style.color = 'red';
-                messageDiv.innerText = result.error || 'Submission failed.';
+                messageDiv.style.color = '#b00020';
+                messageDiv.textContent = result.error || 'Gönderim başarısız.';
+                $('submitBtn').disabled = false;
             }
         } catch (err) {
-            messageDiv.style.color = 'red';
-            messageDiv.innerText = 'Server error. Please try again.';
+            messageDiv.style.color = '#b00020';
+            messageDiv.textContent = 'Sunucu hatası oluştu. Yanıtların bu sayfada duruyor, tekrar dene.';
+            $('submitBtn').disabled = false;
         }
     });
 </script>
-
 </body>
 </html>
