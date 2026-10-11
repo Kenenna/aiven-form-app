@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Submit Form to Aiven MySQL</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 320px; }
+        h2 { margin-top: 0; color: #333; }
+        input { width: 100%; padding: 10px; margin: 8px 0 16px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        button:hover { background-color: #0056b3; }
+        #message { margin-top: 15px; font-weight: bold; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Contact Us</h2>
+    <form id="submissionForm">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" placeholder="John Doe" required>
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="john@example.com" required>
+
+        <button type="submit">Submit</button>
+    </form>
+    <div id="message"></div>
+</div>
+
+<script>
+    document.getElementById('submissionForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const messageDiv = document.getElementById('message');
+        messageDiv.style.color = 'black';
+        messageDiv.innerText = 'Submitting...';
+
+        const name = document.getElementById('name').value;
+        const email = document.getElementById('email').value;
+
+        try {
+            const response = await fetch('/api/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email })
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                messageDiv.style.color = 'green';
+                messageDiv.innerText = result.message;
+                document.getElementById('submissionForm').reset();
+            } else {
+                messageDiv.style.color = 'red';
+                messageDiv.innerText = result.error || 'Submission failed.';
+            }
+        } catch (err) {
+            messageDiv.style.color = 'red';
+            messageDiv.innerText = 'Server error. Please try again.';
+        }
+    });
+</script>
+
+</body>
+</html>
