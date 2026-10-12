@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yanıt etiketleme</title>
+<style>
+  :root { --ink:#1f2933; --muted:#5b6770; --line:#d9dee3; --accent:#0b5c8a; --bg:#f3f5f7; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--ink); margin: 0; padding: 20px; display: flex; justify-content: center; line-height: 1.5; }
+  .container { background: #fff; padding: 1.5rem 2rem; border-radius: 8px; border: 1px solid var(--line); width: 100%; max-width: 760px; }
+  h2 { color: var(--accent); margin-top: 0; }
+  .hidden { display: none; }
+  .error { color: #b00020; margin-top: 8px; }
+  #bar { display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 14px; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 14px; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; }
+  .lbl { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .ans { background: #fffbea; border-left: 4px solid #e0b400; padding: 10px; white-space: pre-wrap; font-size: 17px; min-height: 48px; }
+  #prev { background: #eef3f7; border-left: 4px solid var(--accent); padding: 10px 12px; margin-bottom: 14px; font-size: 14px; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 12px; padding: 8px 12px; }
+  legend { font-weight: 600; padding: 0 6px; }
+  fieldset label { display: block; padding: 3px 0; cursor: pointer; }
+  textarea, input[type=text] { width: 100%; padding: 8px; border: 1px solid #b8c0c7; border-radius: 4px; font: inherit; }
+  button { background: var(--accent); color: #fff; border: 0; padding: 11px 18px; border-radius: 4px; font-size: 16px; cursor: pointer; }
+  button.link { background: none; color: var(--accent); padding: 0; font-size: 14px; text-decoration: underline; }
+  button.alt { background: #fff; color: var(--accent); border: 1px solid var(--accent); margin-right: 8px; }
+  button:disabled { opacity: .6; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px solid #8cc4e6; outline-offset: 1px; }
+  pre { background: #f3f5f7; padding: 10px; overflow-x: auto; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div id="loginSection">
+    <h2>Etiketleme girişi</h2>
+    <label for="tok">Giriş kodu</label>
+    <input type="text" id="tok" autocomplete="off" autocapitalize="characters" style="margin:6px 0 12px">
+    <button id="loginBtn" type="button">Giriş yap</button>
+    <div id="loginError" class="error" role="alert"></div>
+  </div>
+
+  <div id="main" class="hidden">
+    <div id="bar"><span id="who"></span><span id="prog"></span><button id="logout" class="link" type="button">Çıkış</button></div>
+    <p id="empty" class="hidden">Etiketlenecek yanıt kalmadı.</p>
+    <div id="work" class="hidden">
+      <div class="card">
+        <div class="lbl">Soru</div><div id="q"></div>
+        <div class="lbl">Öğrenci yanıtı</div><div id="a" class="ans"></div>
+      </div>
+      <div id="prev" class="hidden"></div>
+      <form id="f">
+        <fieldset>
+          <legend id="catLegend">Kategori (1–4 tuşları)</legend>
+          <label><input type="radio" name="cat" value="correct"> 1. Doğru anlama</label>
+          <label><input type="radio" name="cat" value="partial"> 2. Kısmi anlama</label>
+          <label><input type="radio" name="cat" value="misconception"> 3. Kavram yanılgısı</label>
+          <label><input type="radio" name="cat" value="invalid"> 4. Geçersiz, boş veya konu dışı</label>
+        </fieldset>
+        <fieldset id="codesBox" class="hidden"><legend>Kod(lar)</legend><div id="codes"></div></fieldset>
+        <label><input type="checkbox" id="unsure"> Emin değilim</label>
+        <label><input type="checkbox" id="lang"> Yazım veya anlatım sorunu var; kavramsal hata değil</label>
+        <div class="lbl">Not (isteğe bağlı)</div>
+        <textarea id="notes" rows="2" maxlength="1000"></textarea>
+        <p><button type="submit" id="save">Kaydet ve sonrakine geç (Ctrl+Enter)</button></p>
+      </form>
+      <div id="msg" class="error" role="alert"></div>
+    </div>
+    <div id="tools" class="hidden">
+      <button class="alt" id="exp" type="button">CSV dışa aktar</button>
+      <button class="alt" id="agr" type="button">Uyum (kappa) hesapla</button>
+      <pre id="out" class="hidden"></pre>
+    </div>
+  </div>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const CAT = { correct:'Doğru', partial:'Kısmi anlama', misconception:'Kavram yanılgısı', invalid:'Geçersiz' };
+  let token = sessionStorage.getItem('tok') || '', me = null, cur = null;
+
+  async function api(path, opt = {}) {
+    const res = await fetch('/api/ann' + path, { ...opt, headers: { 'Content-Type': 'application/json', 'x-token': token } });
+    if (res.status === 401) { logout(); throw new Error('auth'); }
+    return res;
+  }
+  function logout() { sessionStorage.removeItem('tok'); token = ''; me = null; $('main').classList.add('hidden'); $('loginSection').classList.remove('hidden'); }
+
+  async function login() {
+    $('loginError').textContent = '';
+    token = $('tok').value.trim().toUpperCase() || token;
+    try {
+      const res = await api('/me');
+      if (!res.ok) { $('loginError').textContent = 'Giriş kodu geçersiz.'; return; }
+      me = await res.json(); sessionStorage.setItem('tok', token);
+      $('loginSection').classList.add('hidden'); $('main').classList.remove('hidden');
+      $('who').textContent = me.annotator_id + (me.role === 'adjudicator' ? ' (hakem)' : '');
+      $('tools').classList.toggle('hidden', me.role !== 'adjudicator');
+      next();
+    } catch (e) { if (e.message !== 'auth') $('loginError').textContent = 'Sunucuya bağlanılamadı.'; }
+  }
+
+  async function next() {
+    $('msg').textContent = '';
+    const res = await api(me.role === 'adjudicator' ? '/adjudicate/next' : '/next');
+    const d = await res.json();
+    cur = d.item;
+    if (me.role !== 'adjudicator') $('prog').textContent = `${d.done} / ${d.total} etiketlendi`;
+    $('empty').classList.toggle('hidden', !!cur); $('work').classList.toggle('hidden', !cur);
+    if (!cur) return;
+    $('q').textContent = cur.question_text; $('a').textContent = cur.answer_text;
+    $('f').reset(); $('codesBox').classList.add('hidden');
+    $('codes').innerHTML = cur.codes.map(([c, t]) => `<label><input type="checkbox" name="code" value="${c}"> ${c}: ${esc(t)}</label>`).join('');
+    const prev = $('prev');
+    prev.classList.toggle('hidden', me.role !== 'adjudicator');
+    if (me.role === 'adjudicator') {
+      const L = (id, c, k, u, l) => `${esc(id)}: ${CAT[c]}${k ? ' [' + esc(k.replace(/;/g, ', ')) + ']' : ''}${u ? ' (emin değil)' : ''}${l ? ' (yazım sorunu)' : ''}`;
+      prev.innerHTML = `<b>${cur.disagree ? 'Uyuşmazlık' : 'Denetim örneği (etiketler aynı)'}</b><br>${L(cur.raters[0], cur.c1, cur.k1, cur.u1, cur.l1)}<br>${L(cur.raters[1], cur.c2, cur.k2, cur.u2, cur.l2)}`;
+      $('prog').textContent = 'Son etiketi sen belirle';
+    }
+  }
+
+  document.querySelectorAll('input[name=cat]').forEach(r => r.addEventListener('change', () => {
+    const v = document.querySelector('input[name=cat]:checked').value;
+    $('codesBox').classList.toggle('hidden', v === 'correct' || v === 'invalid');
+  }));
+
+  $('f').addEventListener('submit', async e => {
+    e.preventDefault();
+    const cat = document.querySelector('input[name=cat]:checked');
+    if (!cat) { $('msg').textContent = 'Bir kategori seç.'; return; }
+    $('save').disabled = true;
+    try {
+      const res = await api(me.role === 'adjudicator' ? '/final' : '/label', { method: 'POST', body: JSON.stringify({
+        response_id: cur.response_id, category: cat.value,
+        codes: [...document.querySelectorAll('input[name=code]:checked')].map(c => c.value),
+        unsure: $('unsure').checked, language_only: $('lang').checked, notes: $('notes').value }) });
+      const d = await res.json();
+      if (!res.ok) { $('msg').textContent = d.error || 'Kaydedilemedi.'; return; }
+      await next();
+    } catch (err) { if (err.message !== 'auth') $('msg').textContent = 'Sunucu hatası.'; }
+    finally { $('save').disabled = false; }
+  });
+
+  document.addEventListener('keydown', e => {
+    if (!cur || $('work').classList.contains('hidden')) return;
+    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); $('f').requestSubmit(); return; }
+    if (/^(TEXTAREA|INPUT)$/.test(e.target.tagName) && e.target.type === 'text' || e.target.tagName === 'TEXTAREA') return;
+    const map = { 1: 'correct', 2: 'partial', 3: 'misconception', 4: 'invalid' };
+    if (map[e.key]) { const r = document.querySelector(`input[name=cat][value=${map[e.key]}]`); r.checked = true; r.dispatchEvent(new Event('change')); }
+  });
+
+  $('loginBtn').addEventListener('click', login);
+  $('tok').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  $('logout').addEventListener('click', logout);
+  $('agr').addEventListener('click', async () => {
+    const d = await (await api('/agreement')).json();
+    $('out').textContent = JSON.stringify(d, null, 2); $('out').classList.remove('hidden');
+  });
+  $('exp').addEventListener('click', async () => {
+    const blob = await (await api('/export')).blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'labels.csv'; a.click();
+  });
+  if (token) login();
+</script>
+</body>
+</html>
